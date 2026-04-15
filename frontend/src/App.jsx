@@ -68,29 +68,28 @@ export default function App() {
 
       setAnalysisStage(2)
 
-      // Call /analyze, /proxy-graph, and /simulate in parallel
-      const [analyzeRes, proxyRes, simRes] = await Promise.all([
+      // Call /analyze and /proxy-graph in parallel
+      // Simulation data is now generated dynamically inside /analyze
+      const [analyzeRes, proxyRes] = await Promise.all([
         fetch(`${API_URL}/analyze`, { method: 'POST', body: formData }),
         fetch(`${API_URL}/proxy-graph`, { method: 'POST', body: proxyForm }),
-        fetch(`${API_URL}/simulate`),
       ])
 
       setAnalysisStage(3)
 
       if (!analyzeRes.ok) throw new Error(`Analysis failed: ${analyzeRes.statusText}`)
       if (!proxyRes.ok) throw new Error(`Proxy graph failed: ${proxyRes.statusText}`)
-      if (!simRes.ok) throw new Error(`Simulation failed: ${simRes.statusText}`)
 
-      const [analyzeData, proxyData, simData] = await Promise.all([
+      const [analyzeData, proxyData] = await Promise.all([
         analyzeRes.json(),
         proxyRes.json(),
-        simRes.json(),
       ])
 
       setAnalysisStage(4)
       setAnalysisResult(analyzeData)
       setProxyResult(proxyData)
-      setSimulationData(simData)
+      // Extract simulation data from analyze response (computed dynamically)
+      setSimulationData(analyzeData.simulation || null)
 
       // Auto-advance to Metrics tab
       setDatasetTab(1)

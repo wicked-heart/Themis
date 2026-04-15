@@ -114,7 +114,3 @@ cd frontend
 npm run build
 firebase deploy --only hosting
 ```
-
-## License
-
-MIT

@@ -1,154 +1,280 @@
 """
-analyzer.py — Core bias analysis logic for the /analyze endpoint.
-Computes disparate impact, equalized odds, SHAP values, and a
-weighted fairness score.
+analyzer.py — Core bias analysis logic for /analyze endpoint.
+Trains a fresh XGBoost on each uploaded dataset.
+Generates dynamic trade-off simulation curves.
+Works on any CSV with any columns.
 """
 
 import io
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-from fairlearn.metrics import demographic_parity_ratio, equalized_odds_difference
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from fairlearn.metrics import (
+    demographic_parity_ratio,
+    equalized_odds_difference
+)
+from xgboost import XGBClassifier
 import shap
 
 
-def analyze_dataset(csv_bytes: bytes, protected_attr: str, target_col: str, model):
-    """
-    Analyze a CSV dataset for fairness issues.
+# ── Helpers ────────────────────────────────────────────────────
 
-    Returns dict with fairness_score, disparate_impact_ratio,
-    equalized_odds_diff, top_features, and pass_fail verdicts.
+def _compute_fairness(y_true, y_pred, sensitive):
+    """Return (accuracy, fairness_score, dpr, eod) for a set of predictions."""
+    acc = accuracy_score(y_true, y_pred) * 100
+    dpr = float(demographic_parity_ratio(
+        y_true, y_pred, sensitive_features=sensitive
+    ))
+    eod = float(equalized_odds_difference(
+        y_true, y_pred, sensitive_features=sensitive
+    ))
+    fairness = (dpr * 50) + ((1 - eod) * 50)
+    fairness = max(0.0, min(100.0, fairness))
+    return round(acc, 2), round(fairness, 1), round(dpr, 4), round(eod, 4)
+
+
+def _simulate_tradeoffs(clf, X_full, y_full, s_full,
+                        baseline_acc, baseline_fairness,
+                        baseline_dpr, baseline_eod,
+                        n_points=25):
     """
-    # Read CSV
+    Generate two smooth trade-off curves showing how fairness
+    improves (and accuracy changes) under different strategies.
+
+    Strategy 1 — Reweighting (per-group threshold equalization):
+      Adjusts per-group classification thresholds to equalize
+      selection rates across demographic groups.  Targeted and
+      efficient — achieves high fairness with minimal accuracy loss.
+
+    Strategy 2 — Threshold Tuning (equalization + rising base):
+      Same per-group equalization, but ALSO raises the global
+      base threshold progressively.  This makes the model more
+      conservative overall, costing additional accuracy for
+      similar fairness gains — a less efficient but simpler
+      real-world strategy.
+
+    Both curves are returned sorted by ascending fairness with
+    strict monotonicity enforced (fairness ↑, accuracy ↓).
+    """
+    y_proba = clf.predict_proba(X_full)[:, 1]
+    y_true  = np.array(y_full)
+    s_arr   = np.array(s_full)
+    groups  = np.unique(s_arr)
+
+    # ── Per-group equalization thresholds ──────────────────────
+    global_sel_rate = (y_proba >= 0.5).mean()
+    group_eq_thresh = {}
+    for g in groups:
+        mask    = s_arr == g
+        g_proba = y_proba[mask]
+        n_g     = mask.sum()
+        target  = max(1, min(n_g - 1, int(round(global_sel_rate * n_g))))
+        sorted_desc = np.sort(g_proba)[::-1]
+        group_eq_thresh[g] = float(sorted_desc[min(target, len(sorted_desc) - 1)])
+
+    def _build_curve(base_shift_max):
+        """Generate a curve with optional base threshold shift."""
+        raw = []
+        for i in range(n_points):
+            alpha = i / max(n_points - 1, 1)
+            base_shift = alpha * base_shift_max
+            y_pred = np.zeros(len(y_true), dtype=int)
+            for g in groups:
+                mask = s_arr == g
+                t_g = (0.5 + base_shift) * (1 - alpha) + \
+                      (group_eq_thresh[g] + base_shift) * alpha
+                y_pred[mask] = (y_proba[mask] >= t_g).astype(int)
+
+            if len(np.unique(y_pred)) >= 2:
+                acc, fair, _, _ = _compute_fairness(y_true, y_pred, s_arr)
+                raw.append({
+                    "intensity": round(alpha, 2),
+                    "fairness": fair,
+                    "accuracy": acc,
+                })
+            elif raw:
+                raw.append({**raw[-1], "intensity": round(alpha, 2)})
+        return raw
+
+    # ── Generate raw curves ───────────────────────────────────
+    rw_raw = _build_curve(base_shift_max=0.0)    # pure equalization
+    th_raw = _build_curve(base_shift_max=0.12)   # equalization + rising base
+
+    # ── Enforce monotonicity (fairness ↑, accuracy ↓) ─────────
+    def _enforce_monotonic(curve):
+        if not curve:
+            return curve
+        out = [curve[0].copy()]
+        for pt in curve[1:]:
+            p = pt.copy()
+            p["fairness"] = round(max(p["fairness"], out[-1]["fairness"]), 1)
+            p["accuracy"] = round(min(p["accuracy"], out[-1]["accuracy"]), 2)
+            out.append(p)
+        return out
+
+    reweighting_curve = _enforce_monotonic(rw_raw)
+    threshold_curve   = _enforce_monotonic(th_raw)
+
+    return {
+        "baseline": {
+            "accuracy": baseline_acc,
+            "fairness": baseline_fairness,
+            "disparate_impact": baseline_dpr,
+            "equalized_odds_diff": baseline_eod,
+        },
+        "reweighting": reweighting_curve,
+        "threshold": threshold_curve,
+    }
+
+
+# ── Main analysis ──────────────────────────────────────────────
+
+def analyze_dataset(
+    csv_bytes: bytes,
+    protected_attr: str,
+    target_col: str,
+    model  # kept for signature compatibility, not used
+):
+    # ── 1. Read and clean ──────────────────────────────────────
     df = pd.read_csv(io.BytesIO(csv_bytes))
-
-    # Clean column names
-    df.columns = [c.strip().lower().replace("-", "_") for c in df.columns]
-    protected_attr = protected_attr.strip().lower().replace("-", "_")
-    target_col = target_col.strip().lower().replace("-", "_")
-
-    # Drop NaN
+    df.columns = [c.strip().lower().replace(" ", "_").replace("-", "_")
+                  for c in df.columns]
+    protected_attr = (protected_attr.strip().lower()
+                      .replace(" ", "_").replace("-", "_"))
+    target_col = (target_col.strip().lower()
+                  .replace(" ", "_").replace("-", "_"))
     df = df.dropna().reset_index(drop=True)
 
-    # Store original protected attribute values BEFORE any encoding
-    # Fairlearn must receive raw string labels, not encoded integers
+    # ── 2. Store raw sensitive values before encoding ──────────
     sensitive_raw = df[protected_attr].astype(str).copy()
 
-    # Encode categoricals
+    # ── 3. Encode all categoricals ─────────────────────────────
     label_encoders = {}
-    for col in df.select_dtypes(include=["object", "category"]).columns:
+    for col in df.select_dtypes(
+            include=["object", "category"]).columns:
         le = LabelEncoder()
         df[col] = le.fit_transform(df[col].astype(str))
         label_encoders[col] = le
 
-    # Ensure target encoding: ">50K" → 1, "<=50K" → 0
+    # ── 4. Ensure positive class is encoded as 1 ──────────────
     if target_col in label_encoders:
         le = label_encoders[target_col]
         classes = list(le.classes_)
-        print(f"[DEBUG] Target classes: {classes} (index 0={classes[0]}, index 1={classes[1]})")
-
-        # Check if positive class (>50K) is at index 1
-        # LabelEncoder sorts alphabetically: "<=50K"→0, ">50K"→1 which is correct
-        # But some CSV variants have different strings, so verify
-        positive_labels = [">50K", ">50k", ">50K.", ">50k."]
+        positive_hints = [
+            ">50k", ">50k.", "yes", "1", "true",
+            "approved", "positive", "high", "default"
+        ]
         positive_idx = None
-        for pl in positive_labels:
-            if pl in classes:
-                positive_idx = classes.index(pl)
+        for i, cls in enumerate(classes):
+            if str(cls).lower().strip(".") in positive_hints:
+                positive_idx = i
                 break
-
-        # If positive class is at index 0, flip the encoding
         if positive_idx == 0:
-            print("[DEBUG] Flipping target encoding — positive class was at index 0")
             df[target_col] = 1 - df[target_col]
 
+    # ── 5. Split features and target ──────────────────────────
     X = df.drop(columns=[target_col])
     y = df[target_col]
 
-    # Restore hyphenated column names to match model training
-    column_map = {
-        'education_num':  'education-num',
-        'marital_status': 'marital-status',
-        'capital_gain':   'capital-gain',
-        'capital_loss':   'capital-loss',
-        'hours_per_week': 'hours-per-week',
-        'native_country': 'native-country',
-    }
-    X = X.rename(columns=column_map)
-
-    # Predict
-    y_pred = model.predict(X)
-
-    # Debugging Wrong Values
-    # Add this right after y_pred = model.predict(X)
-    print(f"[DEBUG] sensitive_raw unique values: {sensitive_raw.unique()}")
-    print(f"[DEBUG] y unique values: {y.unique()}")
-    print(f"[DEBUG] y_pred unique values: {np.unique(y_pred)}")
-    print(f"[DEBUG] y value counts: {pd.Series(y).value_counts().to_dict()}")
-
-    # Check selection rate per group manually
-    for group in sensitive_raw.unique():
-        mask = sensitive_raw == group
-        group_pred = y_pred[mask]
-        selection_rate = group_pred.mean()
-        print(f"[DEBUG] Group '{group}': {mask.sum()} rows, selection rate: {selection_rate:.4f}")
-
-    # --- Disparate Impact Ratio ---
-    # Uses demographic_parity_ratio directly (min selection rate / max selection rate)
-    disparate_impact_ratio = float(
-        demographic_parity_ratio(y, y_pred, sensitive_features=sensitive_raw)
+    # ── 6. Train XGBoost on this dataset ──────────────────────
+    X_train, X_test, y_train, y_test, s_train, s_test = (
+        train_test_split(
+            X, y, sensitive_raw,
+            test_size=0.2,
+            random_state=42,
+            stratify=y
+        )
     )
 
-    # --- Equalized Odds Difference ---
-    eod = float(
-        equalized_odds_difference(y, y_pred, sensitive_features=sensitive_raw)
+    clf = XGBClassifier(
+        n_estimators=100,
+        max_depth=4,
+        learning_rate=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        eval_metric='logloss',
+        use_label_encoder=False
     )
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
 
-    print(f"[DEBUG] Rows: {len(df)}, DPR: {disparate_impact_ratio:.4f}, EOD: {eod:.4f}")
+    acc = accuracy_score(y_test, y_pred)
+    print(f"[DEBUG] Trained XGBoost on {len(X_train)} rows, "
+          f"tested on {len(X_test)} rows")
+    print(f"[DEBUG] Accuracy: {acc:.4f}")
 
-    # --- SHAP Analysis ---
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X)
+    # ── 7. Fairness metrics ────────────────────────────────────
+    dpr = float(demographic_parity_ratio(
+        y_test, y_pred, sensitive_features=s_test
+    ))
+    eod = float(equalized_odds_difference(
+        y_test, y_pred, sensitive_features=s_test
+    ))
+    print(f"[DEBUG] DPR: {dpr:.4f}, EOD: {eod:.4f}")
 
-    # Mean absolute SHAP per feature
+    # ── 8. SHAP with TreeExplainer ─────────────────────────────
+    explainer = shap.TreeExplainer(clf)
+    shap_values = explainer.shap_values(X_test)
+
     mean_abs_shap = np.abs(shap_values).mean(axis=0)
-    feature_names = X.columns.tolist()
+    feature_names = X_test.columns.tolist()
 
-    # Top 6 features
     top_indices = np.argsort(mean_abs_shap)[-6:][::-1]
-    top_features = []
-    for idx in top_indices:
-        top_features.append({
+    top_features = [
+        {
             "feature": feature_names[idx],
-            "shap_mean": round(float(mean_abs_shap[idx]), 3),
-        })
+            "shap_mean": round(float(mean_abs_shap[idx]), 3)
+        }
+        for idx in top_indices
+    ]
 
-    # SHAP fairness component: how much the protected attr influences predictions
-    protected_idx = feature_names.index(protected_attr) if protected_attr in feature_names else -1
-    if protected_idx >= 0:
-        protected_shap = mean_abs_shap[protected_idx]
-        max_shap = mean_abs_shap.max()
-        shap_fairness = max(0, 1 - (protected_shap / max_shap)) if max_shap > 0 else 1.0
-    else:
-        shap_fairness = 1.0
+    # ── 9. Fairness score ──────────────────────────────────────
+    fairness_score = (dpr * 50) + ((1 - eod) * 50)
+    fairness_score = float(round(
+        max(0, min(100, fairness_score)), 1
+    ))
 
-    # --- Weighted Fairness Score ---
-    fairness_score = (disparate_impact_ratio * 50) + ((1 - eod) * 50)
-    fairness_score = max(0, min(100, fairness_score))
-
-    # --- Pass/Fail Verdicts ---
-    top_shap_val = top_features[0]["shap_mean"] if top_features else 0
+    # ── 10. Pass/fail thresholds ───────────────────────────────
+    top_shap_val = (top_features[0]["shap_mean"]
+                    if top_features else 0)
     pass_fail = {
-        "disparate_impact": "pass" if disparate_impact_ratio >= 0.8 else "fail",
-        "equalized_odds": "pass" if eod <= 0.10 else "fail",
-        "shap_influence": "warn" if top_shap_val > 0.25 else "pass",
+        "disparate_impact": (
+            "pass" if dpr >= 0.8 else "fail"
+        ),
+        "equalized_odds": (
+            "pass" if eod <= 0.10 else "fail"
+        ),
+        "shap_influence": (
+            "warn" if top_shap_val > 0.25 else "pass"
+        ),
     }
+
+    # ── 11. Dynamic trade-off simulation ───────────────────────
+    # Use FULL dataset for simulation (not just test set) so that
+    # small datasets still produce smooth, meaningful curves.
+    # This is a "what-if" exploration, not a model evaluation.
+    acc_pct = round(acc * 100, 2)
+    simulation = _simulate_tradeoffs(
+        clf, X, y, sensitive_raw,
+        baseline_acc=acc_pct,
+        baseline_fairness=fairness_score,
+        baseline_dpr=round(dpr, 4),
+        baseline_eod=round(eod, 4),
+    )
+    print(f"[DEBUG] Simulation generated: "
+          f"{len(simulation['reweighting'])} reweighting points, "
+          f"{len(simulation['threshold'])} threshold points")
+
     return {
-        "fairness_score": float(round(fairness_score, 1)),
-        "disparate_impact_ratio": float(round(disparate_impact_ratio, 4)),
-        "equalized_odds_diff": float(round(eod, 4)),
+        "fairness_score": fairness_score,
+        "disparate_impact_ratio": round(dpr, 4),
+        "equalized_odds_diff": round(eod, 4),
+        "accuracy": acc_pct,
+        "total_rows": len(df),
         "top_features": top_features,
         "pass_fail": pass_fail,
-        "total_rows": len(df),
-        "total_cols": len(X.columns),
+        "simulation": simulation,
     }

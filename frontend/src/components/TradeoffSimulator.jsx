@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import {
-  LineChart,
+  ComposedChart,
   Line,
   XAxis,
   YAxis,
@@ -9,6 +9,7 @@ import {
   ReferenceLine,
   Legend,
   ResponsiveContainer,
+  Scatter,
 } from 'recharts'
 
 function findKneePoint(points) {
@@ -26,24 +27,45 @@ function findKneePoint(points) {
 export default function TradeoffSimulator({ data }) {
   const [sliderValue, setSliderValue] = useState(0)
 
-  const { chartData, kneeIndex, kneeFairness } = useMemo(() => {
-    if (!data) return { chartData: [], kneeIndex: 0, kneeFairness: 0 }
+  const { chartData, kneeIndex, kneeFairness, fairDomain, accDomain } = useMemo(() => {
+    if (!data) return { chartData: [], kneeIndex: 0, kneeFairness: 0, fairDomain: [0, 100], accDomain: [0, 100] }
 
     const reweighting = data.reweighting || []
     const threshold = data.threshold || []
 
-    const merged = reweighting.map((rw, idx) => ({
-      fairness: rw.fairness,
-      reweighting: rw.accuracy,
-      threshold: threshold[idx]?.accuracy ?? null,
-    }))
+    // Both curves are monotonic (fairness ↑, accuracy ↓) from the backend.
+    // Build a unified dataset indexed by intensity step.
+    // Each point has: fairness (from reweighting, used as X),
+    // rwAccuracy, thAccuracy.
+    const maxLen = Math.max(reweighting.length, threshold.length)
+    const merged = []
+    for (let i = 0; i < maxLen; i++) {
+      const rw = reweighting[i]
+      const th = threshold[i]
+      merged.push({
+        fairness: rw?.fairness ?? th?.fairness ?? 0,
+        rwAccuracy: rw?.accuracy ?? null,
+        thFairness: th?.fairness ?? null,
+        thAccuracy: th?.accuracy ?? null,
+      })
+    }
 
     const knee = findKneePoint(reweighting)
+
+    // Compute dynamic axis domains from actual data
+    const allFairness = [...reweighting.map(r => r.fairness), ...threshold.map(t => t.fairness)]
+    const allAccuracy = [...reweighting.map(r => r.accuracy), ...threshold.map(t => t.accuracy)]
+    const fMin = Math.floor(Math.min(...allFairness) - 3)
+    const fMax = Math.ceil(Math.max(...allFairness) + 3)
+    const aMin = Math.floor(Math.min(...allAccuracy) - 2)
+    const aMax = Math.ceil(Math.max(...allAccuracy) + 2)
 
     return {
       chartData: merged,
       kneeIndex: knee,
       kneeFairness: reweighting[knee]?.fairness || 0,
+      fairDomain: [fMin, fMax],
+      accDomain: [aMin, aMax],
     }
   }, [data])
 
@@ -78,6 +100,16 @@ export default function TradeoffSimulator({ data }) {
     )
   }
 
+  // Prepare separate datasets for the two Scatter+Line series
+  const rwData = (data.reweighting || []).map(p => ({
+    fairness: p.fairness,
+    accuracy: p.accuracy,
+  }))
+  const thData = (data.threshold || []).map(p => ({
+    fairness: p.fairness,
+    accuracy: p.accuracy,
+  }))
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
       <div className="text-center mb-4">
@@ -90,30 +122,79 @@ export default function TradeoffSimulator({ data }) {
       {/* Chart */}
       <div className="glass-card p-6">
         <ResponsiveContainer width="100%" height={440}>
-          <LineChart data={chartData} margin={{ top: 15, right: 30, left: 20, bottom: 30 }}>
+          <ComposedChart margin={{ top: 15, right: 30, left: 20, bottom: 30 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(30,32,69,0.8)" />
             <XAxis
+              type="number"
               dataKey="fairness"
-              domain={[30, 85]}
+              domain={fairDomain}
               tickCount={8}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               label={{ value: 'Fairness Score', position: 'insideBottom', offset: -10, style: { fill: '#94a3b8', fontSize: '12px', fontFamily: 'Inter' } }}
             />
             <YAxis
-              domain={[75, 90]}
+              type="number"
+              dataKey="accuracy"
+              domain={accDomain}
               tickCount={6}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               label={{ value: 'Accuracy %', angle: -90, position: 'insideLeft', offset: -5, style: { fill: '#94a3b8', fontSize: '12px', fontFamily: 'Inter' } }}
             />
             <Tooltip
-              contentStyle={{
-                background: 'rgba(15, 17, 33, 0.95)',
-                border: '1px solid rgba(99, 102, 241, 0.2)',
-                borderRadius: '10px',
-                fontFamily: 'Inter',
-                fontSize: '12px',
-                color: '#e2e8f0',
+              content={({ active, payload }) => {
+                if (!active || !payload || payload.length === 0) return null
+                // Deduplicate: Scatter emits separate entries for X and Y dataKeys.
+                // Group by series color to show one row per curve.
+                const seen = new Set()
+                const unique = payload.filter(entry => {
+                  const key = entry.color
+                  if (seen.has(key)) return false
+                  seen.add(key)
+                  return true
+                })
+                return (
+                  <div style={{
+                    background: 'rgba(15, 17, 33, 0.95)',
+                    border: '1px solid rgba(99, 102, 241, 0.2)',
+                    borderRadius: '10px',
+                    padding: '10px 14px',
+                    fontFamily: 'Inter',
+                    fontSize: '12px',
+                    color: '#e2e8f0',
+                    backdropFilter: 'blur(8px)',
+                    animation: 'tooltipFadeIn 0.2s ease-out',
+                  }}>
+                    <style>{`
+                      @keyframes tooltipFadeIn {
+                        from { opacity: 0; transform: translateY(4px); }
+                        to   { opacity: 1; transform: translateY(0); }
+                      }
+                    `}</style>
+                    {unique.map((entry, i) => {
+                      // Map color to proper series name
+                      const name = entry.color === '#6366f1' ? 'Reweighting' : 'Threshold Tuning'
+                      return (
+                        <div key={i} style={{ marginBottom: i < unique.length - 1 ? '8px' : 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                            <span style={{
+                              width: '8px', height: '8px', borderRadius: '50%',
+                              background: entry.color, display: 'inline-block',
+                            }} />
+                            <span style={{ color: entry.color, fontWeight: 600 }}>{name}</span>
+                          </div>
+                          <div style={{ color: '#94a3b8', paddingLeft: '14px' }}>
+                            Fairness: <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{entry.payload.fairness}</span>
+                            <span style={{ margin: '0 6px', opacity: 0.4 }}>·</span>
+                            Accuracy: <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{entry.payload.accuracy}%</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
               }}
+              cursor={false}
+              isAnimationActive={false}
             />
             <Legend
               verticalAlign="top"
@@ -132,25 +213,25 @@ export default function TradeoffSimulator({ data }) {
                 offset: 10,
               }}
             />
-            <Line
-              type="monotone"
-              dataKey="reweighting"
+            <Scatter
               name="Reweighting"
-              stroke="#6366f1"
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 5, fill: '#6366f1' }}
+              data={rwData}
+              fill="#6366f1"
+              line={{ stroke: '#6366f1', strokeWidth: 3 }}
+              legendType="circle"
+              shape={() => null}
+              isAnimationActive={false}
             />
-            <Line
-              type="monotone"
-              dataKey="threshold"
+            <Scatter
               name="Threshold Tuning"
-              stroke="#14b8a6"
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 5, fill: '#14b8a6' }}
+              data={thData}
+              fill="#14b8a6"
+              line={{ stroke: '#14b8a6', strokeWidth: 3 }}
+              isAnimationActive={false}
+              legendType="circle"
+              shape={() => null}
             />
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 
