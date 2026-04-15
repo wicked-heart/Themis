@@ -1,0 +1,59 @@
+# Environment variables
+.env
+**/.env
+**/*.local
+
+# Node.js
+node_modules/
+dist/
+dist-ssr/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+
+# Data and Models
+*.csv
+*.pkl
+backend/simulation.json
+
+# User Requested Private Files
+backend/Dockerfile
+backend/gemini.py
+backend/export_full_adult.py
+backend/requirements.txt
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
