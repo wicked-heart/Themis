@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 
 from analyzer import analyze_dataset
 from proxy_graph import build_proxy_graph
-from simulator import get_simulation_data
 from model_evaluator import evaluate_model
 from gemini import explain_bias
 
@@ -105,7 +104,7 @@ async def proxy_graph_endpoint(
 @app.get("/simulate")
 async def simulate_endpoint():
     """Return pre-loaded simulation data for trade-off curves."""
-    return get_simulation_data(simulation_data)
+    return simulation_data
 
 
 @app.post("/explain")

@@ -159,6 +159,21 @@ def analyze_dataset(
         label_encoders[col] = le
 
     # ── 4. Ensure positive class is encoded as 1 ──────────────
+    unique_target_vals = df[target_col].nunique()
+    if unique_target_vals > 2:
+        # Binarize high-cardinality or continuous targets at their median
+        try:
+            numeric_target = pd.to_numeric(df[target_col])
+        except Exception:
+            le = LabelEncoder()
+            numeric_target = le.fit_transform(df[target_col])
+        median_val = np.median(numeric_target)
+        df[target_col] = (numeric_target > median_val).astype(int)
+    elif target_col not in label_encoders and not set(df[target_col].unique()).issubset({0, 1}):
+        le = LabelEncoder()
+        df[target_col] = le.fit_transform(df[target_col])
+        label_encoders[target_col] = le
+
     if target_col in label_encoders:
         le = label_encoders[target_col]
         classes = list(le.classes_)
@@ -173,6 +188,8 @@ def analyze_dataset(
                 break
         if positive_idx == 0:
             df[target_col] = 1 - df[target_col]
+
+    df[target_col] = df[target_col].astype(int)
 
     # ── 5. Split features and target ──────────────────────────
     X = df.drop(columns=[target_col])
