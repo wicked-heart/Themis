@@ -103,7 +103,7 @@ export default function StrategyComparator({ simulationData, analysisResult, pro
     return (
       <div className="max-w-5xl mx-auto">
         <div className="glass-card p-12 text-center">
-          <div className="text-4xl mb-3 opacity-40">⚖️</div>
+
           <p className="text-slate-400 font-medium">No comparison data yet</p>
           <p className="text-slate-500 text-sm mt-2">
             Run a dataset analysis first to compare mitigation strategies.

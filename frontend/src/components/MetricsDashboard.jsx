@@ -71,7 +71,7 @@ export default function MetricsDashboard({ result, stage, loading }) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">⏳</div>
+
           <p className="text-slate-400">Analyzing your dataset for bias patterns...</p>
         </div>
         <ProgressBar stage={stage} />
@@ -83,7 +83,7 @@ export default function MetricsDashboard({ result, stage, loading }) {
     return (
       <div className="max-w-5xl mx-auto">
         <div className="glass-card p-12 text-center">
-          <div className="text-4xl mb-3 opacity-40">📊</div>
+
           <p className="text-slate-400 font-medium">No analysis results yet</p>
           <p className="text-slate-500 text-sm mt-2">
             Upload a dataset and run analysis from the Upload tab to see fairness metrics.

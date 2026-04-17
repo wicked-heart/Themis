@@ -159,16 +159,10 @@ export default function App() {
       <header className="glass-card-static flex items-center justify-between flex-wrap gap-3 px-5 py-3 mt-4 mb-6"
         style={{ borderRadius: '16px' }}>
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 6v6l4 2" />
-            </svg>
-          </div>
+          <img src="/themiss.svg" alt="Themis Logo" className="w-12 h-12" />
           <div>
             <h1 className="text-lg font-bold text-gradient">Themis</h1>
-            <p className="text-xs text-slate-500">AI Fairness Debugger</p>
+            <p className="text-xs text-slate-500">Where fairness becomes a decision</p>
           </div>
         </div>
 
@@ -179,14 +173,14 @@ export default function App() {
             className={`tab-button ${mode === 'dataset' ? 'active' : ''}`}
             onClick={() => setMode('dataset')}
           >
-            📊 Dataset Analysis
+            Dataset Analysis
           </button>
           <button
             id="tab-model"
             className={`tab-button ${mode === 'model' ? 'active' : ''}`}
             onClick={() => setMode('model')}
           >
-            🤖 Model Evaluation
+            Model Evaluation
           </button>
         </div>
 

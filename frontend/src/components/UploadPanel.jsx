@@ -81,7 +81,7 @@ export default function UploadPanel({
         <input {...getInputProps()} />
         {csvFile ? (
           <div className="space-y-2">
-            <div className="text-3xl">✅</div>
+
             <p className="text-teal-400 font-semibold">{csvFile.name}</p>
             <p className="text-slate-500 text-sm">
               {(csvFile.size / 1024).toFixed(1)} KB • {columns.length} columns
@@ -90,7 +90,7 @@ export default function UploadPanel({
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="text-4xl opacity-40">📁</div>
+
             <p className="text-slate-300 font-medium">
               {isDragActive ? 'Drop your CSV here...' : 'Drag & drop a CSV file here'}
             </p>
@@ -192,7 +192,7 @@ export default function UploadPanel({
                 Analyzing...
               </span>
             ) : (
-              '🔍 Analyze for Bias'
+              'Analyze for Bias'
             )}
           </button>
         </div>

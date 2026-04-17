@@ -90,7 +90,7 @@ export default function TradeoffSimulator({ data }) {
     return (
       <div className="max-w-5xl mx-auto">
         <div className="glass-card p-12 text-center">
-          <div className="text-4xl mb-3 opacity-40">📈</div>
+
           <p className="text-slate-400 font-medium">No simulation data yet</p>
           <p className="text-slate-500 text-sm mt-2">
             Run a dataset analysis first to see trade-off simulations.
@@ -207,7 +207,7 @@ export default function TradeoffSimulator({ data }) {
               strokeDasharray="6 4"
               strokeWidth={2}
               label={{
-                value: '⬇ Best trade-off',
+                value: '↓ Best trade-off',
                 position: 'insideTopRight',
                 style: { fill: '#fbbf24', fontSize: '11px', fontWeight: '600', fontFamily: 'Inter' },
                 offset: 10,

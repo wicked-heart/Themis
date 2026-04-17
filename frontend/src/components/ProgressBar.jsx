@@ -1,9 +1,9 @@
 export default function ProgressBar({ stage }) {
   const stages = [
-    { label: 'Preprocessing', icon: '📋' },
-    { label: 'Bias Metrics', icon: '📊' },
-    { label: 'SHAP Analysis', icon: '🔬' },
-    { label: 'Scoring', icon: '🎯' },
+    { label: 'Preprocessing' },
+    { label: 'Bias Metrics' },
+    { label: 'SHAP Analysis' },
+    { label: 'Scoring' },
   ]
 
   return (
@@ -26,7 +26,7 @@ export default function ProgressBar({ stage }) {
                         : 'bg-dark-800 text-slate-500 border-2 border-dark-600'
                     }`}
                 >
-                  {isComplete ? '✓' : s.icon}
+                  {isComplete ? '✓' : (idx + 1)}
                 </div>
                 <span className={`text-xs font-medium transition-colors duration-300 ${
                   isComplete ? 'text-teal-400' : isActive ? 'text-indigo-400' : 'text-slate-500'
