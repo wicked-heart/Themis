@@ -10,7 +10,7 @@ import json
 import pickle
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -85,9 +85,20 @@ async def analyze_endpoint(
     target_col: str = Form(...),
 ):
     """Analyze a dataset for fairness bias."""
-    csv_bytes = await csv_file.read()
-    result = analyze_dataset(csv_bytes, protected_attr, target_col, model)
-    return result
+    try:
+        csv_bytes = await csv_file.read()
+        result = analyze_dataset(csv_bytes, protected_attr, target_col, model)
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {str(e)}"
+        )
 
 
 @app.post("/proxy-graph")

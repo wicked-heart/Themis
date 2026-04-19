@@ -77,7 +77,10 @@ export default function App() {
 
       setAnalysisStage(3)
 
-      if (!analyzeRes.ok) throw new Error(`Analysis failed: ${analyzeRes.statusText}`)
+      if (!analyzeRes.ok) {
+        const errBody = await analyzeRes.json().catch(() => null)
+        throw new Error(errBody?.detail || `Analysis failed: ${analyzeRes.statusText}`)
+      }
       if (!proxyRes.ok) throw new Error(`Proxy graph failed: ${proxyRes.statusText}`)
 
       const [analyzeData, proxyData] = await Promise.all([

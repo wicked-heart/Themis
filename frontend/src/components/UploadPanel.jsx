@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import ProgressBar from './ProgressBar'
+import CustomDropdown from './CustomDropdown'
 
 const SENSITIVE_COLS = ['sex', 'race', 'age', 'gender', 'ethnicity', 'religion']
 
@@ -60,7 +61,8 @@ export default function UploadPanel({
     return columns
   }, [csvFile, columns])
 
-  const canAnalyze = csvFile && protectedAttr && targetCol && !loading
+  const sameColumn = protectedAttr && targetCol && protectedAttr === targetCol
+  const canAnalyze = csvFile && protectedAttr && targetCol && !loading && !sameColumn
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6 animate-fade-in pb-8" style={{ gap: '1.5rem' }}>
@@ -129,7 +131,10 @@ export default function UploadPanel({
 
       {/* Configuration */}
       {csvFile && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in stagger-2 mt-6" style={{ gap: '1.5rem', marginTop: '1.5rem' }}>
+        <div 
+          className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in stagger-2 mt-6" 
+          style={{ gap: '1.5rem', marginTop: '1.5rem', position: 'relative', zIndex: 20 }}
+        >
           <div className="glass-card p-5">
             <label className="block text-sm font-medium text-slate-400 mb-2" style={{ marginBottom: '0.5rem' }}>
               Protected Attribute
@@ -137,19 +142,14 @@ export default function UploadPanel({
             <p className="text-xs text-slate-500 mb-3" style={{ marginBottom: '0.75rem' }}>
               The demographic feature to evaluate for bias (e.g., sex, race)
             </p>
-            <select
+            <CustomDropdown
               id="select-protected-attr"
-              className="select-input"
+              options={columns}
               value={protectedAttr}
-              onChange={(e) => setProtectedAttr(e.target.value)}
-            >
-              <option value="">Select column...</option>
-              {columns.map(col => (
-                <option key={col} value={col}>
-                  {col} {isSensitive(col) ? '⚠️' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={setProtectedAttr}
+              isSensitive={isSensitive}
+              placeholder="Select protected column..."
+            />
           </div>
 
           <div className="glass-card p-5">
@@ -159,24 +159,23 @@ export default function UploadPanel({
             <p className="text-xs text-slate-500 mb-3" style={{ marginBottom: '0.75rem' }}>
               The outcome variable your model predicts (e.g., income, approved)
             </p>
-            <select
+            <CustomDropdown
               id="select-target-col"
-              className="select-input"
+              options={columns}
               value={targetCol}
-              onChange={(e) => setTargetCol(e.target.value)}
-            >
-              <option value="">Select column...</option>
-              {columns.map(col => (
-                <option key={col} value={col}>{col}</option>
-              ))}
-            </select>
+              onChange={setTargetCol}
+              placeholder="Select target column..."
+            />
           </div>
         </div>
       )}
 
       {/* Analyze Button */}
       {csvFile && (
-        <div className="text-center animate-fade-in stagger-3 pb-8 mb-4 mt-8" style={{ marginTop: '2rem', marginBottom: '2rem' }}>
+        <div 
+          className="text-center animate-fade-in stagger-3 pb-8 mb-4 mt-8" 
+          style={{ marginTop: '2rem', marginBottom: '2rem', position: 'relative', zIndex: 1 }}
+        >
           <button
             id="btn-analyze"
             className="btn-primary"
@@ -201,11 +200,19 @@ export default function UploadPanel({
       {/* Progress */}
       {loading && <ProgressBar stage={stage} />}
 
+      {/* Same-column warning */}
+      {sameColumn && (
+        <div className="glass-card p-4 border-l-4 border-amber-500 animate-fade-in" style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <p className="text-sm text-amber-400 font-medium">
+            Protected attribute and target column cannot be the same.
+          </p>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
-        <div className="glass-card p-4 border-l-4 border-red-500 animate-fade-in">
-          <p className="text-sm text-red-400 font-medium">Analysis Error</p>
-          <p className="text-xs text-slate-400 mt-1">{error}</p>
+        <div className="glass-card p-4 border-l-4 border-red-500 animate-fade-in" style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <p className="text-sm text-red-400 font-medium">{error}</p>
         </div>
       )}
     </div>

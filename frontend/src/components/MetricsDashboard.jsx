@@ -1,18 +1,22 @@
 import { useMemo } from 'react'
 import ProgressBar from './ProgressBar'
+import DecisionPanel from './DecisionPanel'
 
-function ScoreRing({ score }) {
+function ScoreRing({ score, riskLevel }) {
   const radius = 54
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (score / 100) * circumference
 
-  const color = score < 70 ? '#f43f5e' : score < 85 ? '#fbbf24' : '#14b8a6'
-  const bgColor = score < 70
-    ? 'rgba(244,63,94,0.1)'
-    : score < 85
-      ? 'rgba(251,191,36,0.1)'
-      : 'rgba(20,184,166,0.1)'
-  const label = score < 70 ? 'High Risk' : score < 85 ? 'Moderate' : 'Fair'
+  // Color based on risk_level from backend
+  const riskColors = {
+    'Severe Bias': { color: '#f43f5e', bg: 'rgba(244,63,94,0.1)' },
+    'Moderate Bias': { color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
+    'Low Risk': { color: '#14b8a6', bg: 'rgba(20,184,166,0.1)' },
+  }
+  const resolved = riskColors[riskLevel] || riskColors['Low Risk']
+  const color = resolved.color
+  const bgColor = resolved.bg
+  const label = riskLevel || 'Low Risk'
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -112,7 +116,7 @@ export default function MetricsDashboard({ result, stage, loading }) {
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
             Fairness Score
           </h3>
-          <ScoreRing score={result.fairness_score} />
+          <ScoreRing score={result.fairness_score} riskLevel={result.risk_level} />
         </div>
 
         {/* Three metric cards */}
@@ -178,6 +182,9 @@ export default function MetricsDashboard({ result, stage, loading }) {
           })}
         </div>
       </div>
+
+      {/* Decision Panel */}
+      <DecisionPanel decision={result.decision} />
 
       {/* Analysis Complete Progress */}
       <ProgressBar stage={4} />

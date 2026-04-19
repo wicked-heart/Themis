@@ -1,6 +1,6 @@
 # Themis — AI Fairness Debugger
 
-> Detect bias in datasets and trained models, surface proxy features driving discrimination, simulate mitigation trade-offs, and get plain-English explanations powered by Gemini 1.5 Flash.
+> Detect bias in datasets and trained models, surface proxy features driving discrimination, simulate mitigation trade-offs, and get plain-English explanations powered by Gemini 2.5 Flash.
 
 ![Themis](https://img.shields.io/badge/Themis-v1.0-6366f1)
 ![Python](https://img.shields.io/badge/Python-3.11-blue)

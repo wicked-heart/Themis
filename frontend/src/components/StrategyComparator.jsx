@@ -12,19 +12,24 @@ export default function StrategyComparator({ simulationData, analysisResult, pro
 
     const rw = simulationData.reweighting || []
     const th = simulationData.threshold || []
-    const baseline = simulationData.baseline || {}
-
-    // Find best points for each strategy
+    
+    // Find best points (last point)
     const rwBest = rw[rw.length - 1] || {}
     const thBest = th[th.length - 1] || {}
+    
+    // Use the actual curve start as baseline for gain/loss consistency
+    const rwBase = rw[0] || {}
+    const thBase = th[0] || {}
 
-    const rwFairnessGain = (rwBest.fairness || 0) - (baseline.fairness || 0)
-    const rwAccLoss = (baseline.accuracy || 0) - (rwBest.accuracy || 0)
+    const rwFairnessGain = (rwBest.fairness || 0) - (rwBase.fairness || 0)
+    // Positive value means loss, negative means gain
+    const rwAccLoss = (rwBase.accuracy || 0) - (rwBest.accuracy || 0)
 
-    const thFairnessGain = (thBest.fairness || 0) - (baseline.fairness || 0)
-    const thAccLoss = (baseline.accuracy || 0) - (thBest.accuracy || 0)
+    const thFairnessGain = (thBest.fairness || 0) - (thBase.fairness || 0)
+    const thAccLoss = (thBase.accuracy || 0) - (thBest.accuracy || 0)
 
-    const cmbFairnessGain = (rwFairnessGain + thFairnessGain) / 2 * 1.1
+    // Combined strategy estimated by taking the better of two or a weight
+    const cmbFairnessGain = Math.max(rwFairnessGain, thFairnessGain) * 1.05
     const cmbAccLoss = (rwAccLoss + thAccLoss) / 2
 
     const maxGain = Math.max(rwFairnessGain, thFairnessGain, cmbFairnessGain, 1)
@@ -149,10 +154,15 @@ export default function StrategyComparator({ simulationData, analysisResult, pro
                   <span className="text-sm font-semibold text-slate-200">{s.name}</span>
                 </td>
                 <td className="px-5 py-4">
-                  <span className="text-sm text-teal-400 font-semibold">+{s.fairnessGain}</span>
+                  <span className="text-sm text-teal-400 font-semibold">
+                    {Number(s.fairnessGain) >= 0 ? '+' : ''}{s.fairnessGain}
+                  </span>
                 </td>
                 <td className="px-5 py-4">
-                  <span className="text-sm text-coral-400 font-semibold">-{s.accuracyLoss}%</span>
+                  <span className="text-sm text-coral-400 font-semibold">
+                    {Number(s.accuracyLoss) > 0 ? '-' : (Number(s.accuracyLoss) < 0 ? '+' : '')}
+                    {Math.abs(Number(s.accuracyLoss)).toFixed(1)}%
+                  </span>
                 </td>
                 <td className="px-5 py-4">
                   <span className="text-sm text-slate-300">{s.regStability}</span>

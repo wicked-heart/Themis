@@ -328,6 +328,15 @@ body {
   animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
+@keyframes fadeInFast {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-fast {
+  animation: fadeInFast 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
 .animate-slide-right {
   animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
@@ -571,6 +580,109 @@ body {
 .select-input:focus {
   outline: none;
   border-color: var(--color-indigo-500);
+}
+
+/* ======================================
+   Custom Dropdown (Premium Rounded)
+   ====================================== */
+
+.custom-dropdown {
+  position: relative;
+  width: 100%;
+  user-select: none;
+  z-index: 10; /* Ensure dropdown container stays above other sections */
+}
+
+.dropdown-trigger {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 16px; /* High rounding as requested */
+  background: var(--color-dark-800);
+  border: 1px solid var(--color-dark-600);
+  color: var(--color-slate-200);
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dropdown-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dropdown-trigger.active {
+  border-color: var(--color-indigo-400);
+  box-shadow: 0 0 0 3px rgba(0, 150, 255, 0.1);
+}
+
+.dropdown-trigger .placeholder {
+  color: var(--color-slate-500);
+}
+
+.dropdown-trigger .chevron {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--color-slate-400);
+}
+
+.dropdown-trigger .chevron.up {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  background: linear-gradient(
+    135deg, 
+    rgba(255, 255, 255, 0.1), 
+    rgba(255, 255, 255, 0.03)
+  );
+  background-color: rgba(13, 13, 17, 0.8); /* Higher opacity for a more 'frosted' look */
+  backdrop-filter: blur(40px) saturate(160%);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.2); /* More pronounced glass edge */
+  border-radius: 16px;
+  z-index: 1000;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 
+              inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  padding: 8px;
+}
+
+.dropdown-item {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  color: var(--color-slate-300);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 2px;
+}
+
+.dropdown-item:last-child {
+  margin-bottom: 0;
+}
+
+.dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.dropdown-item.selected {
+  background: rgba(0, 150, 255, 0.15);
+  color: var(--color-indigo-400);
+  font-weight: 500;
+}
+
+.dropdown-item.disabled {
+  color: var(--color-slate-500);
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* ======================================

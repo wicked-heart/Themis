@@ -30,9 +30,16 @@ def _compute_fairness(y_true, y_pred, sensitive):
     eod = float(equalized_odds_difference(
         y_true, y_pred, sensitive_features=sensitive
     ))
+    
+    # ── Fairness Score with Caps (Change 1) ────────────────────
     fairness = (dpr * 50) + ((1 - eod) * 50)
-    fairness = max(0.0, min(100.0, fairness))
-    return round(acc, 2), round(fairness, 1), round(dpr, 4), round(eod, 4)
+    if dpr < 0.6:
+        fairness = min(fairness, 50)
+    if dpr < 0.8 and eod > 0.10:
+        fairness = min(fairness, 60)
+    
+    fairness = float(round(max(0.0, min(100.0, fairness)), 1))
+    return round(acc, 2), fairness, round(dpr, 4), round(eod, 4)
 
 
 def _simulate_tradeoffs(clf, X_full, y_full, s_full,
@@ -63,7 +70,7 @@ def _simulate_tradeoffs(clf, X_full, y_full, s_full,
     s_arr   = np.array(s_full)
     groups  = np.unique(s_arr)
 
-    # ── Per-group equalization thresholds ──────────────────────
+    # ── 1. DPR thresholds (Equalizing Selection Rates) ─────────
     global_sel_rate = (y_proba >= 0.5).mean()
     group_eq_thresh = {}
     for g in groups:
@@ -74,7 +81,30 @@ def _simulate_tradeoffs(clf, X_full, y_full, s_full,
         sorted_desc = np.sort(g_proba)[::-1]
         group_eq_thresh[g] = float(sorted_desc[min(target, len(sorted_desc) - 1)])
 
-    def _build_curve(base_shift_max):
+    # ── 2. EOD thresholds (Equalizing True Positive Rates) ─────
+    n_total_pos = (y_true == 1).sum()
+    global_tpr = ((y_proba >= 0.5) & (y_true == 1)).sum() / max(1, n_total_pos)
+    group_eod_thresh = {}
+    for g in groups:
+        pos_mask = (s_arr == g) & (y_true == 1)
+        if pos_mask.sum() > 0:
+            g_pos_proba = y_proba[pos_mask]
+            n_g_pos = pos_mask.sum()
+            target = max(1, min(n_g_pos - 1, int(round(global_tpr * n_g_pos))))
+            sorted_desc = np.sort(g_pos_proba)[::-1]
+            group_eod_thresh[g] = float(sorted_desc[min(target, len(sorted_desc) - 1)])
+        else:
+            group_eod_thresh[g] = 0.5
+
+    # ── 3. Decision: Which fairness bottleneck to target? ─────
+    # If DPR is already healthy but EOD is bad, target EOD errors.
+    use_eod_strategy = (baseline_dpr >= 0.8 and baseline_eod > 0.10)
+    target_thresholds = group_eod_thresh if use_eod_strategy else group_eq_thresh
+    
+    if use_eod_strategy:
+        print(f"[DEBUG] Simulation switching to EOD-optimization path (DPR={baseline_dpr:.2f})")
+
+    def _build_curve(base_shift_max, target_thresholds):
         """Generate a curve with optional base threshold shift."""
         raw = []
         for i in range(n_points):
@@ -83,8 +113,9 @@ def _simulate_tradeoffs(clf, X_full, y_full, s_full,
             y_pred = np.zeros(len(y_true), dtype=int)
             for g in groups:
                 mask = s_arr == g
+                # Interpolate from 0.5 baseline to target fair threshold
                 t_g = (0.5 + base_shift) * (1 - alpha) + \
-                      (group_eq_thresh[g] + base_shift) * alpha
+                      (target_thresholds[g] + base_shift) * alpha
                 y_pred[mask] = (y_proba[mask] >= t_g).astype(int)
 
             if len(np.unique(y_pred)) >= 2:
@@ -99,8 +130,27 @@ def _simulate_tradeoffs(clf, X_full, y_full, s_full,
         return raw
 
     # ── Generate raw curves ───────────────────────────────────
-    rw_raw = _build_curve(base_shift_max=0.0)    # pure equalization
-    th_raw = _build_curve(base_shift_max=0.12)   # equalization + rising base
+    rw_raw = _build_curve(0.0, target_thresholds)    # pure fairness optimization
+    th_raw = _build_curve(0.12, target_thresholds)   # fairness + conservative shift
+
+    # ── Anchor curves to reported baseline ─────────────────────
+    # The first generated point (alpha=0) may differ from the
+    # reported baseline when simulation uses training data.
+    # Replace rw[0] and th[0] with the exact baseline so the
+    # Comparator and Simulator always start from the same reference.
+    baseline_point = {
+        "intensity": 0.0,
+        "fairness": baseline_fairness,
+        "accuracy": baseline_acc,
+    }
+    if rw_raw:
+        rw_raw[0] = baseline_point.copy()
+    else:
+        rw_raw = [baseline_point.copy()]
+    if th_raw:
+        th_raw[0] = baseline_point.copy()
+    else:
+        th_raw = [baseline_point.copy()]
 
     # ── Enforce monotonicity (fairness ↑, accuracy ↓) ─────────
     def _enforce_monotonic(curve):
@@ -147,6 +197,29 @@ def analyze_dataset(
                   .replace(" ", "_").replace("-", "_"))
     df = df.dropna().reset_index(drop=True)
 
+    if len(df) == 0:
+        raise ValueError(
+            "Dataset is empty after preprocessing. "
+            "Please check your input file for missing "
+            "or malformed data."
+        )
+    if len(df) < 50:
+        raise ValueError(
+            f"Dataset has only {len(df)} rows after "
+            f"preprocessing. Minimum 50 rows required "
+            f"for reliable bias analysis."
+        )
+
+    # ── Validate protected attribute ─────────────────────────
+    unique_protected = df[protected_attr].nunique()
+    if unique_protected > 10:
+        raise ValueError(
+            "Protected attribute has too many unique "
+            "values. Please select a demographic column "
+            "with limited categories (e.g., sex, race, "
+            "age group)."
+        )
+
     # ── 2. Store raw sensitive values before encoding ──────────
     sensitive_raw = df[protected_attr].astype(str).copy()
 
@@ -157,6 +230,21 @@ def analyze_dataset(
         le = LabelEncoder()
         df[col] = le.fit_transform(df[col].astype(str))
         label_encoders[col] = le
+
+    # ── Validate target column (Change 4) ──────────────────────
+    unique_target = df[target_col].nunique()
+    if unique_target > 5:
+        raise ValueError(
+            "Invalid target column. Please select a "
+            "binary outcome variable (e.g., approval, "
+            "risk, default). Columns with more than 5 "
+            "unique values are not supported."
+        )
+    if unique_target < 2:
+        raise ValueError(
+            "Target column has only one unique value. "
+            "Please select a valid outcome variable."
+        )
 
     # ── 4. Ensure positive class is encoded as 1 ──────────────
     unique_target_vals = df[target_col].nunique()
@@ -178,8 +266,8 @@ def analyze_dataset(
         le = label_encoders[target_col]
         classes = list(le.classes_)
         positive_hints = [
-            ">50k", ">50k.", "yes", "1", "true",
-            "approved", "positive", "high", "default"
+            ">50k", ">50k.", "yes", "true",
+            "approved", "positive", "high", "good"
         ]
         positive_idx = None
         for i, cls in enumerate(classes):
@@ -194,6 +282,7 @@ def analyze_dataset(
     # ── 5. Split features and target ──────────────────────────
     X = df.drop(columns=[target_col])
     y = df[target_col]
+
 
     # ── 6. Train XGBoost on this dataset ──────────────────────
     X_train, X_test, y_train, y_test, s_train, s_test = (
@@ -212,8 +301,7 @@ def analyze_dataset(
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        eval_metric='logloss',
-        use_label_encoder=False
+        eval_metric='logloss'
     )
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)
@@ -224,17 +312,105 @@ def analyze_dataset(
     print(f"[DEBUG] Accuracy: {acc:.4f}")
 
     # ── 7. Fairness metrics ────────────────────────────────────
-    dpr = float(demographic_parity_ratio(
-        y_test, y_pred, sensitive_features=s_test
-    ))
-    eod = float(equalized_odds_difference(
-        y_test, y_pred, sensitive_features=s_test
-    ))
+    acc_pct, fairness_score, dpr, eod = _compute_fairness(y_test, y_pred, s_test)
+    print(f"[DEBUG] Accuracy: {acc_pct:.2f}%, Fairness: {fairness_score}")
     print(f"[DEBUG] DPR: {dpr:.4f}, EOD: {eod:.4f}")
+
+    # ── Risk classification (DPR + EOD aware) ──────────────────
+    if dpr < 0.6 or eod > 0.40:
+        risk_level = "Severe Risk"
+    elif dpr < 0.8 or eod > 0.20:
+        risk_level = "Moderate Risk"
+    else:
+        risk_level = "Low Risk"
+
+    # ── Decision layer ─────────────────────────────────────────
+    # Issues
+    issues = []
+    if dpr < 0.8:
+        issues.append(
+            f"Disparate impact ratio {dpr:.3f} fails "
+            f"the 80% rule \u2014 one group receives "
+            f"favorable outcomes significantly less often."
+        )
+    if eod > 0.10:
+        issues.append(
+            f"Equalized odds difference {eod:.3f} exceeds "
+            f"threshold \u2014 the model makes different types "
+            f"of errors across groups."
+        )
+
+    # Insight
+    if dpr < 0.8 and eod > 0.10:
+        insight = (
+            "The model shows both outcome disparity and "
+            "error rate disparity. This is a compound "
+            "fairness violation affecting both who gets "
+            "favorable predictions and how errors are "
+            "distributed across groups."
+        )
+    elif dpr < 0.8:
+        insight = (
+            "The model shows outcome disparity \u2014 one group "
+            "receives favorable predictions significantly "
+            "less often. Error rates are roughly balanced "
+            "across groups."
+        )
+    elif eod > 0.10:
+        insight = (
+            "The model shows error rate disparity \u2014 "
+            "prediction accuracy differs meaningfully "
+            "between groups even though overall outcome "
+            "rates are similar."
+        )
+    else:
+        insight = (
+            "No significant fairness violations detected. "
+            "Both outcome rates and error rates are "
+            "balanced across groups."
+        )
+
+    # Actions
+    actions = []
+    if dpr < 0.8:
+        actions.append({
+            "strategy": "Reweighting",
+            "reason": (
+                "Adjusts training sample weights to "
+                "correct outcome disparity."
+            ),
+            "expected_accuracy_drop": "2-4%"
+        })
+    if eod > 0.10:
+        actions.append({
+            "strategy": "Threshold Tuning",
+            "reason": (
+                "Adjusts decision thresholds per group "
+                "to equalize error rates."
+            ),
+            "expected_accuracy_drop": "1-3%"
+        })
+    if dpr < 0.8 and eod > 0.10:
+        actions.append({
+            "strategy": "Combined",
+            "reason": (
+                "Apply both reweighting and threshold "
+                "tuning for compound violations."
+            ),
+            "expected_accuracy_drop": "3-6%"
+        })
+
+    decision = {
+        "issues": issues,
+        "insight": insight,
+        "actions": actions
+    }
 
     # ── 8. SHAP with TreeExplainer ─────────────────────────────
     explainer = shap.TreeExplainer(clf)
-    shap_values = explainer.shap_values(X_test)
+    # Limit SHAP to 500 rows for speed on large datasets
+    shap_sample = X_test.iloc[:500]
+    shap_values = explainer.shap_values(shap_sample)
 
     mean_abs_shap = np.abs(shap_values).mean(axis=0)
     feature_names = X_test.columns.tolist()
@@ -248,11 +424,7 @@ def analyze_dataset(
         for idx in top_indices
     ]
 
-    # ── 9. Fairness score ──────────────────────────────────────
-    fairness_score = (dpr * 50) + ((1 - eod) * 50)
-    fairness_score = float(round(
-        max(0, min(100, fairness_score)), 1
-    ))
+    # (Removed redundant manual calculation, already covered by _compute_fairness)
 
     # ── 10. Pass/fail thresholds ───────────────────────────────
     top_shap_val = (top_features[0]["shap_mean"]
@@ -270,16 +442,18 @@ def analyze_dataset(
     }
 
     # ── 11. Dynamic trade-off simulation ───────────────────────
-    # Use FULL dataset for simulation (not just test set) so that
-    # small datasets still produce smooth, meaningful curves.
-    # This is a "what-if" exploration, not a model evaluation.
-    acc_pct = round(acc * 100, 2)
+    # Use more data for simulation if test set is small
+    if len(X_test) < 200:
+        sim_X, sim_y, sim_s = X_train, y_train, s_train
+    else:
+        sim_X, sim_y, sim_s = X_test, y_test, s_test
+
     simulation = _simulate_tradeoffs(
-        clf, X, y, sensitive_raw,
+        clf, sim_X, sim_y, sim_s,
         baseline_acc=acc_pct,
         baseline_fairness=fairness_score,
-        baseline_dpr=round(dpr, 4),
-        baseline_eod=round(eod, 4),
+        baseline_dpr=dpr,
+        baseline_eod=eod
     )
     print(f"[DEBUG] Simulation generated: "
           f"{len(simulation['reweighting'])} reweighting points, "
@@ -294,4 +468,6 @@ def analyze_dataset(
         "top_features": top_features,
         "pass_fail": pass_fail,
         "simulation": simulation,
+        "risk_level": risk_level,
+        "decision": decision,
     }

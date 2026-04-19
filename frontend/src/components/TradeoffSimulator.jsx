@@ -305,6 +305,17 @@ export default function TradeoffSimulator({ data }) {
           </div>
         </div>
       </div>
+
+      {/* Simulation Note */}
+      <p style={{
+        color: '#64748b',
+        fontSize: '0.75rem',
+        fontStyle: 'italic',
+        textAlign: 'center',
+        marginTop: '0.75rem',
+      }}>
+        Simulation uses precomputed approximations of mitigation effects for real-time interaction. Actual results may vary.
+      </p>
     </div>
   )
 }

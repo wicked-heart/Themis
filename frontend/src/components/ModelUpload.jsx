@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
+import CustomDropdown from './CustomDropdown'
 
 const SENSITIVE_COLS = ['sex', 'race', 'age', 'gender', 'ethnicity', 'religion']
 
@@ -125,48 +126,42 @@ export default function ModelUpload({
 
       {/* Column selectors */}
       {csvFile && columns.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+        <div 
+          className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in"
+          style={{ position: 'relative', zIndex: 20 }}
+        >
           <div className="glass-card p-5">
             <label className="block text-sm font-medium text-slate-400 mb-2">
               Protected Attribute
             </label>
-            <select
+            <CustomDropdown
               id="model-select-protected"
-              className="select-input"
+              options={columns}
               value={protectedAttr}
-              onChange={(e) => setProtectedAttr(e.target.value)}
-            >
-              <option value="">Select column...</option>
-              {columns.map(col => (
-                <option key={col} value={col}>
-                  {col} {isSensitive(col) ? '⚠️' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={setProtectedAttr}
+              isSensitive={isSensitive}
+              placeholder="Select protected column..."
+            />
           </div>
 
           <div className="glass-card p-5">
             <label className="block text-sm font-medium text-slate-400 mb-2">
               Target Column
             </label>
-            <select
+            <CustomDropdown
               id="model-select-target"
-              className="select-input"
+              options={columns}
               value={targetCol}
-              onChange={(e) => setTargetCol(e.target.value)}
-            >
-              <option value="">Select column...</option>
-              {columns.map(col => (
-                <option key={col} value={col}>{col}</option>
-              ))}
-            </select>
+              onChange={setTargetCol}
+              placeholder="Select target column..."
+            />
           </div>
         </div>
       )}
 
       {/* Analyze button */}
       {modelFile && csvFile && (
-        <div className="text-center animate-fade-in">
+        <div className="text-center animate-fade-in" style={{ position: 'relative', zIndex: 1 }}>
           <button
             id="btn-analyze-model"
             className="btn-primary"
