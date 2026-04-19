@@ -1,6 +1,8 @@
 # Environment variables
 .env
+.env.*
 **/.env
+**/.env.*
 **/*.local
 
 # Node.js
@@ -41,12 +43,6 @@ ENV/
 *.csv
 *.pkl
 backend/simulation.json
-
-# User Requested Private Files
-backend/Dockerfile
-backend/gemini.py
-backend/export_full_adult.py
-backend/requirements.txt
 
 # IDE / System
 .vscode/
