@@ -9,6 +9,8 @@ function ScoreRing({ score, riskLevel }) {
 
   // Color based on risk_level from backend
   const riskColors = {
+    'Severe Risk': { color: '#f43f5e', bg: 'rgba(244,63,94,0.1)' },
+    'Moderate Risk': { color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
     'Severe Bias': { color: '#f43f5e', bg: 'rgba(244,63,94,0.1)' },
     'Moderate Bias': { color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
     'Low Risk': { color: '#14b8a6', bg: 'rgba(20,184,166,0.1)' },

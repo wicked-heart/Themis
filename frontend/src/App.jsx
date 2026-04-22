@@ -8,19 +8,17 @@ import StrategyComparator from './components/StrategyComparator'
 import ModelUpload from './components/ModelUpload'
 import ModelMetrics from './components/ModelMetrics'
 import ConfusionMatrix from './components/ConfusionMatrix'
-import CalibrationCurve from './components/CalibrationCurve'
+import ModelDecision from './components/ModelDecision'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
 const DATASET_TABS = ['Upload', 'Metrics', 'Graph', 'Simulator', 'Compare']
-const MODEL_TABS = ['Upload Model', 'Model Metrics', 'Confusion Matrix', 'Calibration']
 
 export default function App() {
   // Top-level mode
   const [mode, setMode] = useState('dataset')
   // Sub-tabs
   const [datasetTab, setDatasetTab] = useState(0)
-  const [modelTab, setModelTab] = useState(0)
 
   // Dataset analysis state
   const [csvFile, setCsvFile] = useState(null)
@@ -37,15 +35,7 @@ export default function App() {
   const [analysisStage, setAnalysisStage] = useState(0)
 
   // Model evaluation state
-  const [modelFile, setModelFile] = useState(null)
-  const [modelCsvFile, setModelCsvFile] = useState(null)
-  const [modelCsvData, setModelCsvData] = useState(null)
-  const [modelColumns, setModelColumns] = useState([])
-  const [modelProtectedAttr, setModelProtectedAttr] = useState('')
-  const [modelTargetCol, setModelTargetCol] = useState('')
-  const [modelResult, setModelResult] = useState(null)
-  const [modelLoading, setModelLoading] = useState(false)
-  const [modelError, setModelError] = useState(null)
+  const [modelResults, setModelResults] = useState(null)
 
   // Run dataset analysis
   const runAnalysis = useCallback(async () => {
@@ -103,39 +93,6 @@ export default function App() {
     }
   }, [csvFile, protectedAttr, targetCol])
 
-  // Run model evaluation
-  const runModelAnalysis = useCallback(async () => {
-    if (!modelFile || !modelCsvFile || !modelProtectedAttr || !modelTargetCol) return
-
-    setModelLoading(true)
-    setModelError(null)
-
-    try {
-      const formData = new FormData()
-      formData.append('model_file', modelFile)
-      formData.append('csv_file', modelCsvFile)
-      formData.append('protected_attr', modelProtectedAttr)
-      formData.append('target_col', modelTargetCol)
-
-      const res = await fetch(`${API_URL}/analyze-model`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!res.ok) throw new Error(`Model analysis failed: ${res.statusText}`)
-
-      const data = await res.json()
-      setModelResult(data)
-
-      // Auto-advance to Model Metrics tab
-      setModelTab(1)
-    } catch (err) {
-      setModelError(err.message)
-    } finally {
-      setModelLoading(false)
-    }
-  }, [modelFile, modelCsvFile, modelProtectedAttr, modelTargetCol])
-
   // Reset all dataset state
   const resetDataset = useCallback(() => {
     setCsvFile(null)
@@ -152,9 +109,9 @@ export default function App() {
     setDatasetTab(0)
   }, [])
 
-  const currentSubTabs = mode === 'dataset' ? DATASET_TABS : MODEL_TABS
-  const currentSubTab = mode === 'dataset' ? datasetTab : modelTab
-  const setCurrentSubTab = mode === 'dataset' ? setDatasetTab : setModelTab
+  const currentSubTabs = mode === 'dataset' ? DATASET_TABS : []
+  const currentSubTab = mode === 'dataset' ? datasetTab : 0
+  const setCurrentSubTab = mode === 'dataset' ? setDatasetTab : () => {}
 
   return (
     <div className="min-h-screen flex flex-col max-w-5xl mx-auto w-full px-4">
@@ -201,19 +158,21 @@ export default function App() {
         </div>
       </header>
 
-      {/* Sub-tab bar */}
-      <div className="flex items-center justify-center gap-2 mb-6">
-        {currentSubTabs.map((tab, idx) => (
-          <button
-            key={tab}
-            id={`subtab-${tab.toLowerCase().replace(/\s+/g, '-')}`}
-            className={`sub-tab-button ${currentSubTab === idx ? 'active' : ''}`}
-            onClick={() => setCurrentSubTab(idx)}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      {/* Sub-tab bar — only for dataset mode */}
+      {mode === 'dataset' && (
+        <div className="flex items-center justify-center gap-2 mb-6">
+          {currentSubTabs.map((tab, idx) => (
+            <button
+              key={tab}
+              id={`subtab-${tab.toLowerCase().replace(/\s+/g, '-')}`}
+              className={`sub-tab-button ${currentSubTab === idx ? 'active' : ''}`}
+              onClick={() => setCurrentSubTab(idx)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Main content */}
       <main className="flex-1 pb-8 w-full">
@@ -265,34 +224,19 @@ export default function App() {
 
         {mode === 'model' && (
           <div className="animate-fade-in">
-            {modelTab === 0 && (
-              <ModelUpload
-                modelFile={modelFile}
-                setModelFile={setModelFile}
-                csvFile={modelCsvFile}
-                onCsvAccepted={(file, data, cols) => {
-                  setModelCsvFile(file)
-                  setModelCsvData(data)
-                  setModelColumns(cols)
-                }}
-                columns={modelColumns}
-                protectedAttr={modelProtectedAttr}
-                setProtectedAttr={setModelProtectedAttr}
-                targetCol={modelTargetCol}
-                setTargetCol={setModelTargetCol}
-                onAnalyze={runModelAnalysis}
-                loading={modelLoading}
-                error={modelError}
-              />
-            )}
-            {modelTab === 1 && (
-              <ModelMetrics result={modelResult} />
-            )}
-            {modelTab === 2 && (
-              <ConfusionMatrix result={modelResult} />
-            )}
-            {modelTab === 3 && (
-              <CalibrationCurve result={modelResult} />
+            <ModelUpload onResults={setModelResults} />
+
+            {modelResults && (
+              <>
+                <ModelMetrics results={modelResults} />
+                <ConfusionMatrix
+                  confusionMatrices={modelResults.confusion_matrices}
+                  groupMetrics={modelResults.group_metrics}
+                />
+                <ModelDecision
+                  decision={modelResults.decision}
+                />
+              </>
             )}
           </div>
         )}

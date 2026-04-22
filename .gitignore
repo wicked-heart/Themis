@@ -53,3 +53,6 @@ backend/simulation.json
 *.njsproj
 *.sln
 *.sw?
+.claude/
+.windsurf/
+skills-lock.json

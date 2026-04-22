@@ -1,37 +1,26 @@
-import { useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import CustomDropdown from './CustomDropdown'
 
-const SENSITIVE_COLS = ['sex', 'race', 'age', 'gender', 'ethnicity', 'religion']
+const API_URL = import.meta.env.VITE_API_URL || ''
 
-export default function ModelUpload({
-  modelFile,
-  setModelFile,
-  csvFile,
-  onCsvAccepted,
-  columns,
-  protectedAttr,
-  setProtectedAttr,
-  targetCol,
-  setTargetCol,
-  onAnalyze,
-  loading,
-  error,
-}) {
-  const onModelDrop = useCallback((files) => {
-    if (files[0]) setModelFile(files[0])
-  }, [setModelFile])
+export default function ModelUpload({ onResults }) {
+  const [modelFile, setModelFile] = useState(null)
+  const [csvFile, setCsvFile] = useState(null)
+  const [columns, setColumns] = useState([])
+  const [protectedAttr, setProtectedAttr] = useState('')
+  const [targetCol, setTargetCol] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const parseCSV = useCallback((text) => {
     const lines = text.trim().split('\n')
     const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-    const rows = lines.slice(1, 6).map(line => {
-      const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
-      const row = {}
-      headers.forEach((h, i) => { row[h] = values[i] || '' })
-      return row
-    })
-    return { headers, rows }
+    return headers
+  }, [])
+
+  const onModelDrop = useCallback((files) => {
+    if (files[0]) setModelFile(files[0])
   }, [])
 
   const onCsvDrop = useCallback((files) => {
@@ -39,11 +28,14 @@ export default function ModelUpload({
     if (!file) return
     const reader = new FileReader()
     reader.onload = (e) => {
-      const { headers, rows } = parseCSV(e.target.result)
-      onCsvAccepted(file, rows, headers)
+      const headers = parseCSV(e.target.result)
+      setColumns(headers)
+      setCsvFile(file)
+      setProtectedAttr('')
+      setTargetCol('')
     }
     reader.readAsText(file)
-  }, [onCsvAccepted, parseCSV])
+  }, [parseCSV])
 
   const modelDropzone = useDropzone({
     onDrop: onModelDrop,
@@ -57,15 +49,67 @@ export default function ModelUpload({
     multiple: false,
   })
 
-  const isSensitive = (col) => SENSITIVE_COLS.some(s => col.toLowerCase().includes(s))
-  const canAnalyze = modelFile && csvFile && protectedAttr && targetCol && !loading
+  const sameColumn = protectedAttr && targetCol && protectedAttr === targetCol
+  const canEvaluate = modelFile && csvFile && protectedAttr && targetCol && !sameColumn && !loading
+
+  const handleEvaluate = async () => {
+    if (!canEvaluate) return
+    setLoading(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('model_file', modelFile)
+      formData.append('csv_file', csvFile)
+      formData.append('protected_attr', protectedAttr)
+      formData.append('target_col', targetCol)
+
+      const res = await fetch(`${API_URL}/analyze-model`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!res.ok) {
+        if (res.status === 400) {
+          const errBody = await res.json().catch(() => null)
+          setError(errBody?.detail || 'Validation error')
+        } else {
+          setError('Server error — check that your model file is a valid .pkl file')
+        }
+        return
+      }
+
+      const data = await res.json()
+      onResults(data)
+    } catch (err) {
+      setError('Server error — check that your model file is a valid .pkl file')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-slate-200 mb-2">Upload Your Model</h2>
+        <h2 className="text-2xl font-bold text-slate-200 mb-2">Model Evaluation</h2>
         <p className="text-slate-400 text-sm">
-          Upload a trained .pkl model and test CSV to evaluate fairness across demographic groups
+          Upload a trained model and test dataset to evaluate fairness across demographic groups
+        </p>
+      </div>
+
+      {/* Info banner */}
+      <div
+        className="glass-card p-4"
+        style={{ borderLeft: '4px solid #6366f1' }}
+      >
+        <p className="text-sm" style={{ color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', lineHeight: '1.6' }}>
+          Important: The test dataset must match your model's training schema exactly — same column
+          names, same order, and same preprocessing pipeline. Categorical columns should already
+          be encoded as numbers if the model was trained on numeric data.
+        </p>
+        <p className="text-xs mt-2" style={{ color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
+          Themis evaluates models assuming consistent preprocessing. Full pipeline compatibility
+          is a planned next step.
         </p>
       </div>
 
@@ -80,19 +124,17 @@ export default function ModelUpload({
           <input {...modelDropzone.getInputProps()} />
           {modelFile ? (
             <div className="space-y-2">
-
-              <p className="text-teal-400 font-semibold">{modelFile.name}</p>
+              <p style={{ color: '#2dd4bf', fontWeight: 600 }}>{modelFile.name}</p>
               <p className="text-slate-500 text-sm">
                 {(modelFile.size / 1024).toFixed(1)} KB
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-
               <p className="text-slate-300 font-medium">
-                {modelDropzone.isDragActive ? 'Drop model here...' : 'Upload .pkl model file'}
+                {modelDropzone.isDragActive ? 'Drop model here...' : 'Upload Trained Model'}
               </p>
-              <p className="text-slate-500 text-sm">Scikit-learn or XGBoost pickle</p>
+              <p className="text-slate-500 text-sm">Drop your .pkl model file here</p>
             </div>
           )}
         </div>
@@ -106,19 +148,17 @@ export default function ModelUpload({
           <input {...csvDropzone.getInputProps()} />
           {csvFile ? (
             <div className="space-y-2">
-
-              <p className="text-teal-400 font-semibold">{csvFile.name}</p>
+              <p style={{ color: '#2dd4bf', fontWeight: 600 }}>{csvFile.name}</p>
               <p className="text-slate-500 text-sm">
                 {(csvFile.size / 1024).toFixed(1)} KB • {columns.length} columns
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-
               <p className="text-slate-300 font-medium">
-                {csvDropzone.isDragActive ? 'Drop CSV here...' : 'Upload test CSV'}
+                {csvDropzone.isDragActive ? 'Drop CSV here...' : 'Upload Test Dataset'}
               </p>
-              <p className="text-slate-500 text-sm">Same format as training data</p>
+              <p className="text-slate-500 text-sm">Drop your test CSV here</p>
             </div>
           )}
         </div>
@@ -126,7 +166,7 @@ export default function ModelUpload({
 
       {/* Column selectors */}
       {csvFile && columns.length > 0 && (
-        <div 
+        <div
           className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in"
           style={{ position: 'relative', zIndex: 20 }}
         >
@@ -139,7 +179,6 @@ export default function ModelUpload({
               options={columns}
               value={protectedAttr}
               onChange={setProtectedAttr}
-              isSensitive={isSensitive}
               placeholder="Select protected column..."
             />
           </div>
@@ -159,14 +198,26 @@ export default function ModelUpload({
         </div>
       )}
 
-      {/* Analyze button */}
+      {/* Same column validation warning */}
+      {sameColumn && (
+        <div
+          className="glass-card p-4 animate-fade-in"
+          style={{ borderLeft: '4px solid #f43f5e' }}
+        >
+          <p className="text-sm" style={{ color: '#fca5a5' }}>
+            Protected attribute and target column cannot be the same.
+          </p>
+        </div>
+      )}
+
+      {/* Evaluate button */}
       {modelFile && csvFile && (
         <div className="text-center animate-fade-in" style={{ position: 'relative', zIndex: 1 }}>
           <button
-            id="btn-analyze-model"
+            id="btn-evaluate-model"
             className="btn-primary"
-            disabled={!canAnalyze}
-            onClick={onAnalyze}
+            disabled={!canEvaluate}
+            onClick={handleEvaluate}
           >
             {loading ? (
               <span className="flex items-center gap-2">
@@ -174,19 +225,22 @@ export default function ModelUpload({
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Evaluating Model...
+                Evaluating fairness...
               </span>
             ) : (
-              'Analyze Model Fairness'
+              'Evaluate Model'
             )}
           </button>
         </div>
       )}
 
-      {/* Error */}
+      {/* Error display */}
       {error && (
-        <div className="glass-card p-4 border-l-4 border-red-500 animate-fade-in">
-          <p className="text-sm text-red-400 font-medium">Model Analysis Error</p>
+        <div
+          className="glass-card p-4 animate-fade-in"
+          style={{ borderLeft: '4px solid #f43f5e' }}
+        >
+          <p className="text-sm font-medium" style={{ color: '#fca5a5' }}>Model Evaluation Error</p>
           <p className="text-xs text-slate-400 mt-1">{error}</p>
         </div>
       )}

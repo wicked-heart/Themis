@@ -137,8 +137,21 @@ async def analyze_model_endpoint(
     protected_attr: str = Form(...),
     target_col: str = Form(...),
 ):
-    """Evaluate an uploaded model for fairness on a provided dataset."""
-    model_bytes = await model_file.read()
-    csv_bytes = await csv_file.read()
-    result = evaluate_model(model_bytes, csv_bytes, protected_attr, target_col)
-    return result
+    try:
+        model_bytes = await model_file.read()
+        csv_bytes = await csv_file.read()
+        result = evaluate_model(
+            model_bytes, csv_bytes,
+            protected_attr, target_col
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Model evaluation failed: {str(e)}"
+        )

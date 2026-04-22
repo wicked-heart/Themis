@@ -1,147 +1,141 @@
-import { useMemo } from 'react'
-
-export default function ConfusionMatrix({ result }) {
-  const matrices = useMemo(() => {
-    if (!result?.group_metrics) return null
-
-    const groups = Object.keys(result.group_metrics)
-    if (groups.length < 2) return null
-
-    // We don't have raw TP/FP/FN/TN counts from the API,
-    // so we estimate them from the rates for display.
-    // In a real scenario, the backend would return these.
-    return groups.slice(0, 2).map((group, idx) => {
-      const m = result.group_metrics[group]
-      const acc = m.accuracy
-      const fpr = m.fpr
-      const fnr = m.fnr
-      
-      // Estimate values (normalized to 100 base)
-      const n = 100
-      const positives = Math.round(n * 0.35) // estimate prevalence
-      const negatives = n - positives
-      
-      const tp = Math.round(positives * (1 - fnr))
-      const fn = positives - tp
-      const fp = Math.round(negatives * fpr)
-      const tn = negatives - fp
-
-      return {
-        group,
-        tp, fp, fn, tn,
-        fpr: m.fpr,
-        fnr: m.fnr,
-        isMinority: idx === 1,
-      }
-    })
-  }, [result])
-
-  if (!result) {
+export default function ConfusionMatrix({ confusionMatrices, groupMetrics }) {
+  if (!confusionMatrices || Object.keys(confusionMatrices).length === 0) {
     return (
       <div className="max-w-5xl mx-auto">
         <div className="glass-card p-12 text-center">
-
-          <p className="text-slate-400 font-medium">No confusion matrix data yet</p>
+          <p className="text-slate-400 font-medium">No confusion matrix data available</p>
           <p className="text-slate-500 text-sm mt-2">
-            Upload and analyze a model to see per-group confusion matrices.
+            Upload and evaluate a model to see per-group confusion matrices.
           </p>
         </div>
       </div>
     )
   }
 
-  if (!matrices) {
-    return (
-      <div className="max-w-5xl mx-auto">
-        <div className="glass-card p-12 text-center">
-          <p className="text-slate-400">Insufficient group data for confusion matrices.</p>
-        </div>
-      </div>
-    )
+  const groups = Object.keys(confusionMatrices)
+
+  // Color coding helper
+  const rateColor = (val) => {
+    if (val > 0.20) return '#f43f5e'
+    if (val >= 0.10) return '#fbbf24'
+    return '#14b8a6'
   }
 
+  // Compute FPR and FNR from confusion matrix values
+  const computeRates = (cm) => {
+    const fpr = (cm.fp + cm.tn) > 0 ? cm.fp / (cm.fp + cm.tn) : 0
+    const fnr = (cm.fn + cm.tp) > 0 ? cm.fn / (cm.fn + cm.tp) : 0
+    return { fpr, fnr }
+  }
+
+  // Check FPR disparity for exactly two groups
+  const groupRates = groups.map(g => ({
+    group: g,
+    ...computeRates(confusionMatrices[g])
+  }))
+
+  const hasFprDisparity = groups.length === 2 &&
+    Math.abs(groupRates[0].fpr - groupRates[1].fpr) > 0.10
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in" style={{ marginTop: '4rem' }}>
       <div className="text-center mb-4">
-        <h2 className="text-2xl font-bold text-slate-200 mb-2">Confusion Matrices</h2>
+        <h2 className="text-2xl font-bold text-slate-200 mb-2">Confusion Matrix by Group</h2>
         <p className="text-slate-400 text-sm">
-          Side-by-side comparison of prediction errors across demographic groups
+          Comparing prediction errors across demographic groups
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {matrices.map((mat, idx) => (
-          <div
-            key={mat.group}
-            className={`glass-card p-6 animate-fade-in stagger-${idx + 1}`}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ background: idx === 0 ? '#6366f1' : '#fb7185' }}
-              />
-              <h3 className="text-sm font-semibold text-slate-300">
-                {mat.group}
-                <span className="text-xs text-slate-500 ml-2">
-                  ({mat.isMinority ? 'Minority' : 'Majority'} group)
-                </span>
+      <div className="flex flex-wrap gap-6" style={{ justifyContent: 'center' }}>
+        {groups.map((group, idx) => {
+          const cm = confusionMatrices[group]
+          const rates = computeRates(cm)
+
+          return (
+            <div
+              key={group}
+              className={`glass-card p-6 animate-fade-in stagger-${idx + 1}`}
+              style={{ flex: '1 1 340px', maxWidth: '420px' }}
+            >
+              <h3 className="text-sm font-semibold text-slate-300 mb-4" style={{ fontWeight: 700 }}>
+                {group}
               </h3>
-            </div>
 
-            {/* 2x2 Matrix Grid */}
-            <div className="flex justify-center mb-4">
-              <div>
-                {/* Header labels */}
-                <div className="flex mb-2" style={{ marginLeft: '90px' }}>
-                  <span className="w-20 text-center text-xs text-slate-500">Predicted +</span>
-                  <span className="w-20 text-center text-xs text-slate-500 ml-2">Predicted −</span>
-                </div>
-                
-                {/* Row 1: Actual Positive */}
-                <div className="flex items-center mb-2">
-                  <span className="w-20 text-right text-xs text-slate-500 pr-3">Actual +</span>
-                  <div className="confusion-cell tp">{mat.tp}</div>
-                  <div className="confusion-cell fn ml-2">{mat.fn}</div>
-                </div>
+              {/* 2x2 Matrix Grid */}
+              <div className="flex justify-center mb-4">
+                <div>
+                  {/* Header labels */}
+                  <div className="flex mb-2" style={{ marginLeft: '90px' }}>
+                    <span className="w-20 text-center text-xs text-slate-500">Predicted −</span>
+                    <span className="w-20 text-center text-xs text-slate-500 ml-2">Predicted +</span>
+                  </div>
 
-                {/* Row 2: Actual Negative */}
-                <div className="flex items-center">
-                  <span className="w-20 text-right text-xs text-slate-500 pr-3">Actual −</span>
-                  <div className="confusion-cell fp">{mat.fp}</div>
-                  <div className="confusion-cell tn ml-2">{mat.tn}</div>
+                  {/* Row 1: Actual Negative */}
+                  <div className="flex items-center mb-2">
+                    <span className="w-20 text-right text-xs text-slate-500" style={{ paddingRight: '12px' }}>Actual −</span>
+                    <div className="confusion-cell tn">
+                      <div className="text-center">
+                        <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>TN</div>
+                        <div style={{ fontWeight: 700 }}>{cm.tn}</div>
+                      </div>
+                    </div>
+                    <div className="confusion-cell fp ml-2">
+                      <div className="text-center">
+                        <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>FP</div>
+                        <div style={{ fontWeight: 700 }}>{cm.fp}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Actual Positive */}
+                  <div className="flex items-center">
+                    <span className="w-20 text-right text-xs text-slate-500" style={{ paddingRight: '12px' }}>Actual +</span>
+                    <div className="confusion-cell fn">
+                      <div className="text-center">
+                        <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>FN</div>
+                        <div style={{ fontWeight: 700 }}>{cm.fn}</div>
+                      </div>
+                    </div>
+                    <div className="confusion-cell tp ml-2">
+                      <div className="text-center">
+                        <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>TP</div>
+                        <div style={{ fontWeight: 700 }}>{cm.tp}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* FPR / FNR below grid */}
+              <div className="grid grid-cols-2 gap-4 mt-4" style={{ paddingTop: '1rem', borderTop: '1px solid rgba(99,102,241,0.12)' }}>
+                <div>
+                  <span className="text-xs text-slate-500">FPR</span>
+                  <p className="text-lg font-bold" style={{ color: rateColor(rates.fpr) }}>
+                    {rates.fpr.toFixed(4)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500">FNR</span>
+                  <p className="text-lg font-bold" style={{ color: rateColor(rates.fnr) }}>
+                    {rates.fnr.toFixed(4)}
+                  </p>
                 </div>
               </div>
             </div>
-
-            {/* FPR / FNR */}
-            <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-card">
-              <div>
-                <span className="text-xs text-slate-500">False Positive Rate</span>
-                <p className="text-lg font-bold text-amber-400">{mat.fpr.toFixed(3)}</p>
-              </div>
-              <div>
-                <span className="text-xs text-slate-500">False Negative Rate</span>
-                <p className="text-lg font-bold text-coral-400">{mat.fnr.toFixed(3)}</p>
-              </div>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      {/* Comparison insight */}
-      {matrices.length === 2 && (
-        <div className="glass-card p-5 animate-fade-in stagger-3" style={{ borderLeft: '4px solid #fbbf24' }}>
-          <p className="text-sm text-slate-300">
-            <span className="font-semibold text-amber-400">Gap Analysis: </span>
-            The FPR gap between groups is{' '}
-            <span className="font-bold">
-              {Math.abs(matrices[0].fpr - matrices[1].fpr).toFixed(3)}
-            </span>
-            {' '}and the FNR gap is{' '}
-            <span className="font-bold">
-              {Math.abs(matrices[0].fnr - matrices[1].fnr).toFixed(3)}
-            </span>.
-            {' '}Larger gaps indicate unfair error distribution across groups.
+      {/* FPR disparity warning */}
+      {hasFprDisparity && (
+        <div
+          className="glass-card p-5 animate-fade-in stagger-3"
+          style={{ borderLeft: '4px solid #f43f5e' }}
+        >
+          <p className="text-sm" style={{ color: '#fca5a5', lineHeight: '1.6' }}>
+            Significant false positive rate disparity detected between groups
+            ({groupRates[0].group}: {groupRates[0].fpr.toFixed(4)} vs {groupRates[1].group}: {groupRates[1].fpr.toFixed(4)}).
+            One group is more likely to receive incorrect favorable predictions.
           </p>
         </div>
       )}
