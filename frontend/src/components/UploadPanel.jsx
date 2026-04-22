@@ -111,8 +111,8 @@ export default function UploadPanel({
             <table className="data-table">
               <thead>
                 <tr>
-                  {columns.map(col => (
-                    <th key={col} className={isSensitive(col) ? 'highlight-col' : ''}>
+                  {columns.map((col, index) => (
+                    <th key={`${col}-${index}`} className={isSensitive(col) ? 'highlight-col' : ''}>
                       {col}
                       {isSensitive(col) && (
                         <span className="ml-2 text-xs text-amber-400">⚠️</span>

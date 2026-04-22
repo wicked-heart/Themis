@@ -110,7 +110,7 @@ def evaluate_model(
 
     has_string_features = (
         df.drop(columns=[target_col])
-        .select_dtypes(include=["object", "category"])
+        .select_dtypes(include=["object", "string", "category"])
         .shape[1] > 0
     )
 
@@ -126,7 +126,7 @@ def evaluate_model(
         for col in df.drop(
                 columns=[target_col]
         ).select_dtypes(
-                include=["object","category"]
+                include=["object", "string", "category"]
         ).columns:
             le = LabelEncoder()
             df[col] = le.fit_transform(
@@ -142,7 +142,7 @@ def evaluate_model(
             print(f"[WARN] {schema_warning}")
 
     # Always encode target to ensure 0/1
-    if df[target_col].dtype == object:
+    if df[target_col].dtype.name in ["object", "string", "category"]:
         le = LabelEncoder()
         df[target_col] = le.fit_transform(
             df[target_col].astype(str)

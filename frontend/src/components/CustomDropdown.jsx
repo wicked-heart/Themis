@@ -47,9 +47,9 @@ export default function CustomDropdown({
 
       {isOpen && (
         <div className="dropdown-menu animate-fade-in-fast">
-          {options.map((opt) => (
+          {options.map((opt, index) => (
             <div
-              key={opt}
+              key={`${opt}-${index}`}
               className={`dropdown-item ${opt === value ? 'selected' : ''}`}
               onClick={() => {
                 onChange(opt)
