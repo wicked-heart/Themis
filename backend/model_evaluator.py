@@ -142,7 +142,7 @@ def evaluate_model(
             print(f"[WARN] {schema_warning}")
 
     # Always encode target to ensure 0/1
-    if df[target_col].dtype.name in ["object", "string", "category"]:
+    if not pd.api.types.is_numeric_dtype(df[target_col]):
         le = LabelEncoder()
         df[target_col] = le.fit_transform(
             df[target_col].astype(str)
